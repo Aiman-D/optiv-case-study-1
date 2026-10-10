@@ -238,6 +238,14 @@ def classify_vendor(vendor_id, cache_dir='cache'):
         crawl_summary = json.load(f)
 
     provider = os.environ.get('LLM_PROVIDER', 'mock')
+    if provider == 'openai':
+        try:
+            import openai
+            client = openai.OpenAI()
+        except Exception as e:
+            print(f"  [classify_vendor] Cannot use OpenAI: {e}. Falling back to mock for {vendor_id}")
+            provider = 'mock'
+            
     classify_fn = classify_with_llm if provider == 'openai' else classify_with_mock
 
     all_signals = []
