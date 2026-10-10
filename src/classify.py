@@ -177,11 +177,17 @@ def classify_with_mock(text, url):
 
 
 def classify_with_llm(text, url):
-    """Real LLM classifier — uses OpenAI API."""
+    """Real LLM classifier — uses OpenAI API or local Ollama."""
     try:
         import openai
-        client = openai.OpenAI()  # uses OPENAI_API_KEY env var
-        model = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
+        provider = os.environ.get('LLM_PROVIDER', 'mock')
+        
+        if provider == 'ollama':
+            client = openai.OpenAI(base_url='http://localhost:11434/v1', api_key='ollama')
+            model = os.environ.get('OPENAI_MODEL', 'llama3.1')
+        else:
+            client = openai.OpenAI()  # uses OPENAI_API_KEY env var
+            model = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
 
         prompt = f"""Analyze this text from {url} for evidence of AI usage.
 For each AI-related claim, extract:
@@ -245,8 +251,15 @@ def classify_vendor(vendor_id, cache_dir='cache'):
         except Exception as e:
             print(f"  [classify_vendor] Cannot use OpenAI: {e}. Falling back to mock for {vendor_id}")
             provider = 'mock'
+    elif provider == 'ollama':
+        try:
+            import openai
+            client = openai.OpenAI(base_url='http://localhost:11434/v1', api_key='ollama')
+        except Exception as e:
+            print(f"  [classify_vendor] Cannot use Ollama: {e}. Falling back to mock for {vendor_id}")
+            provider = 'mock'
             
-    classify_fn = classify_with_llm if provider == 'openai' else classify_with_mock
+    classify_fn = classify_with_llm if provider in ('openai', 'ollama') else classify_with_mock
 
     all_signals = []
     sources_checked = []
