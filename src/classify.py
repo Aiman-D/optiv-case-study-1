@@ -282,9 +282,10 @@ def classify_vendor(vendor_id, cache_dir='cache'):
 
         # Coverage gap
         if status != 200 or not has_content:
+            sig_type = "NEGATIVE-FINDING" if status == 404 else "COVERAGE-GAP"
             all_signals.append({
                 "url": url,
-                "signal_type": "COVERAGE-GAP",
+                "signal_type": sig_type,
                 "verbatim_quote": "",
                 "reason": item.get('reason') or (f"HTTP {status}" if status != 200 else "No extractable content"),
                 "valid": True,

@@ -145,7 +145,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     # >= 10 (Yes) requires at least one strong piece of evidence (e.g. Base 5 * Tier B (3) = 15)
     # >= 3 (Inconclusive) flags weaker signals that require human review or a questionnaire.
     checked_urls = [sc['url'] for sc in sources_checked if sc.get('has_content')]
-    gap_urls = [sc['url'] for sc in sources_checked if not sc.get('has_content')]
+    gap_urls = [sc['url'] for sc in sources_checked if not sc.get('has_content') and sc.get('status') != 404]
     
     good = {}
     for sc in sources_checked:

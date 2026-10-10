@@ -256,9 +256,42 @@ class OSINTCollector:
                     except Exception:
                         pass
                 
+                # --- Tier 2: Wayback Machine CDX API Fallback ---
+                if snapshot.get('status', resp.status_code) != 200 or len(cleaned) < MIN_TEXT_CHARS:
+                    try:
+                        import requests
+                        cdx_url = f"http://web.archive.org/cdx/search/cdx?url={_host(url)}{urlparse(url).path}&output=json&limit=1&fl=timestamp,original"
+                        r_cdx = self.session.get(cdx_url, timeout=5)
+                        if r_cdx.status_code == 200:
+                            data = r_cdx.json()
+                            if len(data) > 1:
+                                timestamp, original = data[1]
+                                wayback_url = f"http://web.archive.org/web/{timestamp}id_/{original}"
+                                rw = self.session.get(wayback_url, timeout=10)
+                                if rw.status_code == 200:
+                                    page = rw.text
+                                    snapshot['raw_html'] = page
+                                    c = trafilatura.extract(
+                                        page, include_links=True, include_comments=False, favor_recall=True)
+                                    if not c:
+                                        soup = BeautifulSoup(page, 'html.parser')
+                                        for tag in soup(['script', 'style', 'noscript', 'template']):
+                                            tag.decompose()
+                                        c = soup.get_text(separator=' ', strip=True)
+                                    
+                                    if len(c) > 50:
+                                        cleaned = c
+                                        snapshot['status'] = 200 # Rescued!
+                    except Exception:
+                        pass
+                
                 if snapshot['status'] == 200:
                     snapshot['cleaned_text'] = cleaned or ''
                     snapshot['content_hash'] = get_hash(snapshot['cleaned_text'])
+                elif snapshot.get('status', resp.status_code) in (401, 403):
+                    # If both search engine and Wayback Machine failed to find it,
+                    # this "403" is actually a 404 masquerading behind a WAF.
+                    snapshot['status'] = 404
                 
                 break
             except Exception as e:
