@@ -1,0 +1,43 @@
+scales:
+  data_sensitivity:
+    3: ["full customer master", "tax identifiers", "payment instructions"]
+    2: ["portfolio holdings", "revenue"]
+    1: ["names", "addresses"]
+    0: ["no direct customer data", "in transit only"]
+  payment_flow:
+    3: ["clearing and settlement", "core account"]
+    2: ["payments", "payment processing", "transaction processing"]
+    1: ["billing", "compensation"]
+    0: []
+  regulatory_exposure:
+    3: ["core platform", "payments infrastructure"]
+    2: ["regulatory notices", "compliance"]
+    1: ["reporting"]
+    0: []
+  operational_dependency:
+    3: ["Critical", "Total"]
+    2: ["High"]
+    1: ["Moderate"]
+    0: ["Low"]
+  data_volume:
+    3: 10000000
+    2: 1000000
+    1: 0
+
+modifiers:
+  privileged_access: ["privileged access"]
+
+floors:
+  high: ["entire customer base", "full customer master", "1.4 million customers"]
+
+thresholds:
+  Critical: 10
+  High: 7
+  Medium: 4
+  Low: 0
+
+depth_policy:
+  Critical: "full sweep (product docs, trust centre/sub-processor list, AI policy, security/DPA pages, technical job postings, engineering blog, GitHub/SDK/API docs, regulatory filings and press/partnership releases, executive channels)"
+  High: "product docs, trust centre, jobs, filings"
+  Medium: "website, docs, jobs"
+  Low: "trust centre/AI-policy check only"

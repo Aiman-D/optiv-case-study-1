@@ -1,0 +1,17 @@
+sources:
+  Tier_A:
+    - name: "Product Docs & AI Policies"
+      paths: ["/docs", "/ai-policy", "/trust", "/security", "/subprocessors", "/dpa"]
+      weight: 4
+  Tier_B:
+    - name: "Jobs & Technical"
+      paths: ["/careers", "/jobs", "/engineering-blog", "/blog", "/developers", "/api"]
+      weight: 3
+  Tier_C:
+    - name: "Contextual"
+      paths: ["/press", "/news", "/about"]
+      weight: 2
+  Tier_D:
+    - name: "Noise"
+      paths: ["/"]
+      weight: 1

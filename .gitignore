@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+
+# Data & Cache — may contain raw OSINT snapshots
+cache/
+data/Meridian_Vendor_Output.xlsx
+
+# Secrets
+.env
+*.key
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Pytest
+.pytest_cache/
