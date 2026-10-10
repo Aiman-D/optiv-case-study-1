@@ -253,7 +253,10 @@ def classify_vendor(vendor_id, cache_dir='cache'):
             'url': url,
             'status': status,
             'has_content': has_content,
-            'source_tier': item.get('source_tier', 'unknown')
+            'source_tier': item.get('source_tier', 'unknown'),
+            'content_hash': item.get('content_hash', ''),
+            'text_len': item.get('text_len', 0),
+            'reason': item.get('reason')
         })
 
         # Coverage gap
@@ -262,7 +265,7 @@ def classify_vendor(vendor_id, cache_dir='cache'):
                 "url": url,
                 "signal_type": "COVERAGE-GAP",
                 "verbatim_quote": "",
-                "reason": f"HTTP {status}" if status != 200 else "No extractable content",
+                "reason": item.get('reason') or (f"HTTP {status}" if status != 200 else "No extractable content"),
                 "valid": True,
                 "source_tier": item.get('source_tier', 'unknown')
             })

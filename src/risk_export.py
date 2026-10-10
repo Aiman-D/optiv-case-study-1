@@ -147,21 +147,21 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     checked_urls = [sc['url'] for sc in sources_checked if sc.get('has_content')]
     gap_urls = [sc['url'] for sc in sources_checked if not sc.get('has_content')]
     
+    good = {}
+    for sc in sources_checked:
+        if sc.get('has_content') and sc.get('text_len', 0) >= 500:
+            good.setdefault(sc['content_hash'], sc)
+    
+    has_ab = any(sc.get('source_tier') in ('Tier_A', 'Tier_B') for sc in good.values())
+    
     if total_score >= 10:
         ai_usage = 'Yes'
     elif total_score >= 3 or len(valid_signals) > 0:
         ai_usage = 'Inconclusive'
-    elif len(checked_urls) >= 3:
+    elif len(good) >= 3 and has_ab:
         ai_usage = 'No'
     else:
         ai_usage = 'Inconclusive' # Not enough coverage to say "No"
-
-    # Apply mock watermark if the mock LLM was used
-    llm_provider = signals_data.get('llm_provider', 'mock')
-    prefix = "[MOCK] " if llm_provider == 'mock' else ""
-
-    if llm_provider == 'mock':
-        ai_usage = prefix + ai_usage
 
     # ── Evidence cell (verbatim excerpts only, per Field Guide) ──
     evidence_parts = []
@@ -182,18 +182,21 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     evidence = "\n\n".join(evidence_parts)
 
     # ── How Vendor May Be Using AI ──
-    if ai_usage.replace("[MOCK] ", "") == 'Yes':
+    if ai_usage == 'Yes':
         mechanisms = set()
         for s in valid_signals:
             m = s.get('ai_mechanism', '')
             if m and m != 'None detected':
                 mechanisms.add(m)
-        how_using = prefix + ("; ".join(mechanisms) if mechanisms else "AI usage detected in public material but specific mechanism unclear.")
-    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
-        how_using = prefix + ("Weak or marketing-level signals detected. Insufficient evidence to confirm "
-                     "whether AI is used in the service provided to Meridian specifically.")
+        how_using = "; ".join(mechanisms) if mechanisms else "AI usage detected in public material but specific mechanism unclear."
+    elif ai_usage == 'Inconclusive':
+        if len(valid_signals) > 0:
+            how_using = ("Weak or marketing-level signals detected. Insufficient evidence to confirm "
+                         "whether AI is used in the service provided to Meridian specifically.")
+        else:
+            how_using = "Insufficient coverage; no determination possible."
     else:
-        how_using = prefix + "N/A — no public evidence of AI usage in the service provided to Meridian."
+        how_using = "N/A — no public evidence of AI usage in the service provided to Meridian."
 
     # ── Named providers ──
     providers_str = ", ".join(sorted(providers)) if providers else (
@@ -203,25 +206,23 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     )
 
     # ── Risk classification ──
-    if ai_usage.replace("[MOCK] ", "") == 'Yes':
+    if ai_usage == 'Yes':
         if criticality_tier == 'Critical':
             risk = 'Critical'
         elif criticality_tier == 'High':
             risk = 'High'
         else:
             risk = 'Medium'
-    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
+    elif ai_usage == 'Inconclusive':
         if criticality_tier in ('Critical', 'High'):
             risk = 'High'
         else:
             risk = 'Medium'
     else:
         risk = 'None identified'
-        
-    risk = prefix + risk
 
     # ── Risk Rationale ──
-    if ai_usage.replace("[MOCK] ", "") == 'Yes':
+    if ai_usage == 'Yes':
         risk_rationale = (
             f"Vendor has {criticality_tier} criticality tier with confirmed AI footprint. "
             f"Data accessed includes \"{data_class}\". "
@@ -230,7 +231,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
         if not providers:
             risk_rationale += "No model provider is publicly identified, leaving data flows untraceable. "
         risk_rationale += f"Evidence strength: {'strong' if total_score >= 15 else 'moderate' if total_score >= 8 else 'limited'}."
-    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
+    elif ai_usage == 'Inconclusive':
         if len(valid_signals) > 0:
             risk_rationale = (
                 f"Vendor has {criticality_tier} criticality tier. Weak AI signals detected "
@@ -250,7 +251,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
         )
 
     # ── Recommended Action (V-000 style) ──
-    if ai_usage.replace("[MOCK] ", "") == 'Yes':
+    if ai_usage == 'Yes':
         action = (
             f"Issue a targeted AI questionnaire within 15 business days covering: "
             f"(1) model provider identity, hosting region, and data retention policy; "
@@ -262,7 +263,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             f"sub-processor change notification, and rights to audit. "
             f"Escalate to Third-Party Risk Committee if confirmation not received within 30 days."
         )
-    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
+    elif ai_usage == 'Inconclusive':
         action = (
             f"Issue an AI usage questionnaire to clarify whether AI is used in the service "
             f"provided to Meridian. Include questions on model providers, data handling, and "
@@ -285,12 +286,14 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             'snapshot hash': bq.get('content_hash', '')
         })
 
+    llm_provider = signals_data.get('llm_provider', 'mock')
+    prefix = "[MOCK] " if llm_provider == 'mock' else ""
     return {
-        'ai_usage': ai_usage,
+        'ai_usage': prefix + ai_usage,
         'evidence': evidence,
-        'how_using': how_using,
+        'how_using': prefix + how_using,
         'providers': providers_str,
-        'risk': risk,
+        'risk': prefix + risk,
         'risk_rationale': risk_rationale,
         'action': action,
         'logs': logs,
