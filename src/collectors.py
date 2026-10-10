@@ -59,7 +59,7 @@ DEPTH_TIERS = {
 }
 
 # Max number of discovered (non-config) pages per criticality tier
-MAX_DISCOVERED = {"Critical": 20, "High": 12, "Medium": 8, "Low": 4}
+MAX_DISCOVERED = {"Critical": 1000, "High": 500, "Medium": 200, "Low": 50}
 
 # Keywords (matched against whole path/anchor tokens) that suggest a source tier
 TIER_KEYWORDS = {
@@ -113,7 +113,7 @@ def guess_tier(tokens):
         return "Tier_A"
     if "ai" in tokens or tokens & TIER_KEYWORDS["Tier_D"]:
         return "Tier_D"
-    return None
+    return "Tier_D"  # Fallback to Tier_D so we crawl everything instead of dropping unknown links
 
 
 def _host(url):
