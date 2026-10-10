@@ -7,7 +7,6 @@ __pycache__/
 
 # Data & Cache — may contain raw OSINT snapshots
 cache/
-data/Meridian_Vendor_Output.xlsx
 
 # Secrets
 .env
