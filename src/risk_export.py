@@ -144,12 +144,17 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     # Justification for thresholds: 
     # >= 10 (Yes) requires at least one strong piece of evidence (e.g. Base 5 * Tier B (3) = 15)
     # >= 3 (Inconclusive) flags weaker signals that require human review or a questionnaire.
+    checked_urls = [sc['url'] for sc in sources_checked if sc.get('has_content')]
+    gap_urls = [sc['url'] for sc in sources_checked if not sc.get('has_content')]
+    
     if total_score >= 10:
         ai_usage = 'Yes'
-    elif total_score >= 3:
+    elif total_score >= 3 or len(valid_signals) > 0:
         ai_usage = 'Inconclusive'
-    else:
+    elif len(checked_urls) >= 3:
         ai_usage = 'No'
+    else:
+        ai_usage = 'Inconclusive' # Not enough coverage to say "No"
 
     # Apply mock watermark if the mock LLM was used
     llm_provider = signals_data.get('llm_provider', 'mock')
@@ -166,9 +171,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             f'Source: {bq["url"]} (retrieved {bq["timestamp"][:10] if bq["timestamp"] else "N/A"})'
         )
     if not evidence_parts:
-        # Build coverage statement for "No" findings
-        checked_urls = [sc['url'] for sc in sources_checked if sc.get('has_content')]
-        gap_urls = [sc['url'] for sc in sources_checked if not sc.get('has_content')]
+        # Build coverage statement for "No" or coverage-based "Inconclusive" findings
         evidence_parts.append(
             f"No indicative AI evidence found.\n"
             f"Sources successfully checked ({len(checked_urls)}): "
@@ -228,14 +231,21 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             risk_rationale += "No model provider is publicly identified, leaving data flows untraceable. "
         risk_rationale += f"Evidence strength: {'strong' if total_score >= 15 else 'moderate' if total_score >= 8 else 'limited'}."
     elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
-        risk_rationale = (
-            f"Vendor has {criticality_tier} criticality tier. Weak AI signals detected "
-            f"(score: {total_score:.1f}) but insufficient to confirm service-specific usage. "
-            f"Provisional rating based on criticality and data class (\"{data_class}\")."
-        )
+        if len(valid_signals) > 0:
+            risk_rationale = (
+                f"Vendor has {criticality_tier} criticality tier. Weak AI signals detected "
+                f"(score: {total_score:.1f}) but insufficient to confirm service-specific usage. "
+                f"Provisional rating based on criticality and data class (\"{data_class}\")."
+            )
+        else:
+            risk_rationale = (
+                f"Vendor has {criticality_tier} criticality tier. Insufficient coverage "
+                f"({len(checked_urls)} pages checked, {len(coverage_gaps)} gaps) to confirm absence of AI. "
+                f"Provisional rating applied."
+            )
     else:
         risk_rationale = (
-            f"No public evidence of AI usage. {len(coverage_gaps)} coverage gap(s) recorded. "
+            f"No public evidence of AI usage across adequate coverage ({len(checked_urls)} pages checked). "
             f"Rating subject to the caveat that absence of evidence is not evidence of absence."
         )
 

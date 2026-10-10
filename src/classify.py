@@ -82,10 +82,13 @@ def find_ai_sentences(text):
 # ──────────────────────────────────────────────────────────────
 
 def verify_quote(quote, source_text):
-    """Verify that a quote is an exact substring of source_text."""
+    """Verify that a quote is an exact substring of source_text after normalizing whitespace."""
     if not quote:
         return True
-    return quote in source_text
+    # Normalize whitespace to avoid false rejections from HTML parsing differences
+    norm_quote = " ".join(quote.split())
+    norm_source = " ".join(source_text.split())
+    return norm_quote in norm_source
 
 
 # ──────────────────────────────────────────────────────────────
