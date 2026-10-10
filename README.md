@@ -26,13 +26,9 @@ The system is designed as a pipeline containing five modular stages (M1 to M5).
 ### Module 2 (M2) — OSINT Collectors (`src/collectors.py`)
 **Role:** Execute the web crawl to gather evidence based on the allowed depth for that vendor's tier.
 
-- **Depth Policy:**
-  - **Critical:** Full internet sweep (product docs, trust centers, AI policies, security pages, technical job postings, engineering blogs, GitHub/API docs, regulatory filings, press releases, executive channels).
-  - **High:** Product docs, trust centers, jobs, and filings.
-  - **Medium:** General website, basic docs, and jobs.
-  - **Low:** Trust center and AI-policy check only.
-- **Safety First:** Relies on `urllib.robotparser` to respect `robots.txt` and enforces a strict 1.2-second rate limit. 
-- **Storage:** Downloads page content via `trafilatura` and stores them in a local cache directory (`cache/`) with ISO-8601 timestamps and content hashes. This makes the tool fully offline-capable once downloaded.
+- **v2 Crawling Engine:** Dynamically discovers links via `sitemap.xml` and homepage crawling. Enforces a strict rate limit and respects `robots.txt` per RFC 9309 (treating 4xx as unrestricted and 5xx as blocked) without silently dropping entire domains.
+- **Offline Caching:** Saves raw HTML, cleaned text (stripping JS blobs via Trafilatura/BeautifulSoup), URL hashes, and text lengths to `cache/`. This makes the tool fully offline-capable once downloaded and provides an immutable audit trail.
+- **Deduplication:** Soft-404s and identical duplicate pages are detected via content hashing and tracked as "Coverage Gaps" rather than artificially inflating the checked page count.
 
 ### Module 3 (M3) — AI Signal Classifier (`src/classify.py`)
 **Role:** Analyze the scraped data to find definitive, verifiable proof of AI usage.
@@ -50,7 +46,8 @@ The system is designed as a pipeline containing five modular stages (M1 to M5).
   - **Tier C (Contextual):** Press releases, Executive posts
   - **Tier D (Noise):** Generic marketing (Ignored)
 - **Aggregation Formula:** Final Score = Base Score × Source Reliability × Service Linkage × Recency. (Signals >180 days old suffer a 0.7x discount).
-- **Final Classification:** Maps the score to Yes/No/Inconclusive and sets the final AI Security Risk to Critical/High/Medium/None.
+- **Coverage-Aware Verdicts:** A vendor is only marked as "No" (AI usage) if the collector successfully read at least 3 distinct pages (including high-value Tier A/B pages) and found zero valid signals. Otherwise, weak signals or heavy bot-blocking (coverage gaps) result in an honest "Inconclusive".
+- **Final Classification:** Maps the verdict and criticality to the final AI Security Risk (Critical/High/Medium/None).
 
 ### Module 5 (M5) — Excel Export & UI (`src/risk_export.py` & `app/main.py`)
 **Role:** Output the results seamlessly.
@@ -89,9 +86,17 @@ Upload `Meridian_Vendor_Input.xlsx`, choose LLM provider (mock or openai), and c
 ### LLM Configuration
 Set via environment variables — **no keys in code**:
 ```bash
-export LLM_PROVIDER=openai       # or "mock" (default)
-export OPENAI_API_KEY=sk-...     # required if provider is openai
-export OPENAI_MODEL=gpt-4o-mini  # optional, default: gpt-4o-mini
+# Option 1: OpenAI (Paid)
+export LLM_PROVIDER=openai       
+export OPENAI_API_KEY=sk-...     
+export OPENAI_MODEL=gpt-4o-mini  
+
+# Option 2: Ollama (Free & Local)
+export LLM_PROVIDER=ollama
+# Requires Ollama running locally: `ollama run llama3.1`
+
+# Option 3: Mock (Default)
+export LLM_PROVIDER=mock
 ```
 
 ### Column V — Assessed By
