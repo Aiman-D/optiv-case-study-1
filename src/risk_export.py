@@ -56,7 +56,9 @@ SIGNAL_BASE = {
 def compute_weighted_score(signals):
     """
     Signal weight = base_score × tier_weight × confidence_weight × service_linkage × recency.
-    Recency: signals older than 6 months are discounted by 0.7×.
+    Recency: signals older than 6 months are discounted by 0.7×. 
+    Justification for 0.7x: AI features change rapidly; a 6-month-old blog post 
+    is less reliable than a recent launch announcement, but still indicates intent.
     Returns total weighted score and breakdown.
     """
     total = 0.0
@@ -139,12 +141,22 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             providers.add(p)
 
     # ── Verdict ──
+    # Justification for thresholds: 
+    # >= 10 (Yes) requires at least one strong piece of evidence (e.g. Base 5 * Tier B (3) = 15)
+    # >= 3 (Inconclusive) flags weaker signals that require human review or a questionnaire.
     if total_score >= 10:
         ai_usage = 'Yes'
     elif total_score >= 3:
         ai_usage = 'Inconclusive'
     else:
         ai_usage = 'No'
+
+    # Apply mock watermark if the mock LLM was used
+    llm_provider = signals_data.get('llm_provider', 'mock')
+    prefix = "[MOCK] " if llm_provider == 'mock' else ""
+
+    if llm_provider == 'mock':
+        ai_usage = prefix + ai_usage
 
     # ── Evidence cell (verbatim excerpts only, per Field Guide) ──
     evidence_parts = []
@@ -167,18 +179,18 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     evidence = "\n\n".join(evidence_parts)
 
     # ── How Vendor May Be Using AI ──
-    if ai_usage == 'Yes':
+    if ai_usage.replace("[MOCK] ", "") == 'Yes':
         mechanisms = set()
         for s in valid_signals:
             m = s.get('ai_mechanism', '')
             if m and m != 'None detected':
                 mechanisms.add(m)
-        how_using = "; ".join(mechanisms) if mechanisms else "AI usage detected in public material but specific mechanism unclear."
-    elif ai_usage == 'Inconclusive':
-        how_using = ("Weak or marketing-level signals detected. Insufficient evidence to confirm "
+        how_using = prefix + ("; ".join(mechanisms) if mechanisms else "AI usage detected in public material but specific mechanism unclear.")
+    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
+        how_using = prefix + ("Weak or marketing-level signals detected. Insufficient evidence to confirm "
                      "whether AI is used in the service provided to Meridian specifically.")
     else:
-        how_using = "N/A — no public evidence of AI usage in the service provided to Meridian."
+        how_using = prefix + "N/A — no public evidence of AI usage in the service provided to Meridian."
 
     # ── Named providers ──
     providers_str = ", ".join(sorted(providers)) if providers else (
@@ -188,23 +200,25 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
     )
 
     # ── Risk classification ──
-    if ai_usage == 'Yes':
+    if ai_usage.replace("[MOCK] ", "") == 'Yes':
         if criticality_tier == 'Critical':
             risk = 'Critical'
         elif criticality_tier == 'High':
             risk = 'High'
         else:
             risk = 'Medium'
-    elif ai_usage == 'Inconclusive':
+    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
         if criticality_tier in ('Critical', 'High'):
             risk = 'High'
         else:
             risk = 'Medium'
     else:
         risk = 'None identified'
+        
+    risk = prefix + risk
 
     # ── Risk Rationale ──
-    if ai_usage == 'Yes':
+    if ai_usage.replace("[MOCK] ", "") == 'Yes':
         risk_rationale = (
             f"Vendor has {criticality_tier} criticality tier with confirmed AI footprint. "
             f"Data accessed includes \"{data_class}\". "
@@ -213,7 +227,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
         if not providers:
             risk_rationale += "No model provider is publicly identified, leaving data flows untraceable. "
         risk_rationale += f"Evidence strength: {'strong' if total_score >= 15 else 'moderate' if total_score >= 8 else 'limited'}."
-    elif ai_usage == 'Inconclusive':
+    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
         risk_rationale = (
             f"Vendor has {criticality_tier} criticality tier. Weak AI signals detected "
             f"(score: {total_score:.1f}) but insufficient to confirm service-specific usage. "
@@ -226,7 +240,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
         )
 
     # ── Recommended Action (V-000 style) ──
-    if ai_usage == 'Yes':
+    if ai_usage.replace("[MOCK] ", "") == 'Yes':
         action = (
             f"Issue a targeted AI questionnaire within 15 business days covering: "
             f"(1) model provider identity, hosting region, and data retention policy; "
@@ -238,7 +252,7 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             f"sub-processor change notification, and rights to audit. "
             f"Escalate to Third-Party Risk Committee if confirmation not received within 30 days."
         )
-    elif ai_usage == 'Inconclusive':
+    elif ai_usage.replace("[MOCK] ", "") == 'Inconclusive':
         action = (
             f"Issue an AI usage questionnaire to clarify whether AI is used in the service "
             f"provided to Meridian. Include questions on model providers, data handling, and "

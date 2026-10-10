@@ -39,7 +39,7 @@ The system is designed as a pipeline containing five modular stages (M1 to M5).
 
 - **Pre-Filtering:** Runs a regex filter with 25+ AI keywords to drop irrelevant pages quickly, saving LLM tokens.
 - **Classification Schema:** Uses an LLM (OpenAI or a deterministic Mock fallback) constrained to output a strict JSON schema identifying: `signal_type`, `verbatim_quote`, `ai_mechanism`, `data_touched`, etc.
-- **The Quote Guard (Crucial):** To prevent LLM hallucinations, the pipeline mandates an **exact substring check**. The quote returned by the LLM *must* exactly match the text inside the cached HTML. If it doesn't match byte-for-byte, the evidence is discarded.
+- **The Quote Guard (Crucial):** To prevent LLM hallucinations, the pipeline mandates an **exact substring check**. The quote returned by the LLM *must* exactly match the **extracted text** (parsed by Trafilatura), ensuring no whitespace or HTML markup differences cause false rejections. If it doesn't match byte-for-byte against the cleaned text, the evidence is discarded.
 
 ### Module 4 (M4) — Risk Engine & Aggregation (`src/risk_export.py`)
 **Role:** Surface the risk and classify the vendor's AI usage.
@@ -78,7 +78,7 @@ pip install -r requirements.txt
 | M2 — OSINT Collectors | `python src/collectors.py` |
 | M3 — AI Signal Classifier | `python src/classify.py` |
 | M4 & M5 — Risk Engine & Excel Export | `python src/risk_export.py` |
-| Full pipeline (via notebook) | `python notebooks/pipeline_demo.py` |
+| Full pipeline (via notebook/script) | `python notebooks/pipeline_demo.py` |
 
 ### Interactive Demo UI
 ```bash
@@ -108,7 +108,6 @@ All 18 tests cover: criticality determinism, substring-quote guard, weighting lo
 
 ### Project Structure
 ```
-cs1/
 ├── config/
 │   ├── rubric.yaml        # Criticality weights, anchors, thresholds, depth policy
 │   └── sources.yaml       # Source tiers and crawl paths
@@ -122,5 +121,7 @@ cs1/
 ├── notebooks/pipeline_demo.py
 ├── data/                  # Input/output workbooks
 ├── cache/                 # Vendor OSINT snapshots (git-ignored)
-└── docs/ARCHITECTURE.md
+├── docs/ARCHITECTURE.md
+├── generate_ppt.py        # Script to generate the presentation
+└── Optiv_Standalone_Presentation.pptx # The final presentation deck
 ```
