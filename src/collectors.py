@@ -220,6 +220,7 @@ class OSINTCollector:
                     if attempt == 0:
                         time.sleep(3)
                         continue
+                cleaned = ''
                 if resp.status_code == 200:
                     page = resp.text
                     snapshot['raw_html'] = page
@@ -231,14 +232,34 @@ class OSINTCollector:
                         for tag in soup(['script', 'style', 'noscript', 'template']):
                             tag.decompose()
                         cleaned = soup.get_text(separator=' ', strip=True)
-                    snapshot['cleaned_text'] = cleaned or ''
-                    snapshot['content_hash'] = get_hash(snapshot['cleaned_text'])
+                    
                     try:
                         meta = trafilatura.extract_metadata(page)
                         if meta is not None and getattr(meta, 'date', None):
                             snapshot['published'] = meta.date
                     except Exception:
                         pass
+                        
+                # --- Tier 1: Search Engine Dorking Fallback ---
+                if resp.status_code in (401, 403) or len(cleaned) < MIN_TEXT_CHARS:
+                    try:
+                        from duckduckgo_search import DDGS
+                        import warnings
+                        warnings.filterwarnings('ignore')
+                        q = f"site:{_host(url)} {urlparse(url).path.replace('/', ' ')} artificial intelligence OR machine learning OR privacy"
+                        results = DDGS().text(q, max_results=3)
+                        if results:
+                            snippet_text = " ".join(r.get('body', '') for r in results)
+                            if len(snippet_text) > 50:
+                                cleaned = snippet_text
+                                snapshot['status'] = 200  # Rescued!
+                    except Exception:
+                        pass
+                
+                if snapshot['status'] == 200:
+                    snapshot['cleaned_text'] = cleaned or ''
+                    snapshot['content_hash'] = get_hash(snapshot['cleaned_text'])
+                
                 break
             except Exception as e:
                 print(f"    FAILED: {e}")

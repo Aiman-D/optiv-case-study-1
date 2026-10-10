@@ -6,3 +6,4 @@ trafilatura
 beautifulsoup4
 streamlit
 pytest
+duckduckgo_search==8.1.1
