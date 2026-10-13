@@ -3,8 +3,12 @@
 
 # ── Cell 1: Setup ──
 import sys, os
-sys.path.insert(0, '../src')
-os.chdir('..')
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'src'))
+sys.path.insert(0, str(ROOT))
+os.chdir(str(ROOT))
 
 # ── Cell 2: M1 — Criticality Engine ──
 from criticality import evaluate_vendor, load_rubric
@@ -39,7 +43,11 @@ print("=" * 70)
 cache_dir = Path('cache')
 for vendor_dir in sorted(cache_dir.iterdir()):
     if vendor_dir.is_dir() and vendor_dir.name.startswith('V-'):
-        signals = classify_vendor(vendor_dir.name)
+        sig_file = vendor_dir / 'signals.json'
+        if sig_file.exists():
+            print(f"  {vendor_dir.name}: loaded from cache")
+        else:
+            signals = classify_vendor(vendor_dir.name)
 
 # ── Cell 5: M4+M5 — Risk Engine & Export ──
 from risk_export import process_and_export

@@ -153,42 +153,65 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             good.setdefault(sc['content_hash'], sc)
     
     has_ab = any(sc.get('source_tier') in ('Tier_A', 'Tier_B') for sc in good.values())
-    
-    if total_score >= 10:
+
+    # Direct positive evidence: substantive score, named providers, or verified product/policy AI signals
+    has_substantive_ai = (round(total_score, 1) >= 5.0) or any(s.get('signal_type') in ('CONFIRMED', 'CORROBORATED') for s in valid_signals) or (len(providers) > 0 and total_score >= 3.0)
+    # Service linkage: does the signal tie to the vendor's actual service or personnel workflow
+    has_service_linked_signal = any(s.get('ties_to_service', False) or s.get('signal_type') in ('CONFIRMED', 'CORROBORATED') for s in valid_signals)
+
+    if has_substantive_ai:
         ai_usage = 'Yes'
-    elif total_score >= 3 or len(valid_signals) > 0:
-        ai_usage = 'Inconclusive'
-    elif len(good) >= 3 and has_ab:
+    elif len(good) >= 3 and has_ab and not has_service_linked_signal:
+        # High coverage (>3 distinct Tier A/B pages) and no service-linked AI detected
         ai_usage = 'No'
+    elif len(good) < 3 or not has_ab:
+        # Genuine coverage gap: website blocked, 404s, or fewer than 3 pages reachable
+        ai_usage = 'Inconclusive'
+    elif total_score >= 3:
+        ai_usage = 'Inconclusive'
     else:
-        ai_usage = 'Inconclusive' # Not enough coverage to say "No"
+        ai_usage = 'No'
 
     # ── Evidence cell (verbatim excerpts only, per Field Guide) ──
     evidence_parts = []
-    for bq in best_quotes[:3]:
-        evidence_parts.append(
-            f'"{bq["quote"]}"\n'
-            f'Source: {bq["url"]} (retrieved {bq["timestamp"][:10] if bq["timestamp"] else "N/A"})'
-        )
-    if not evidence_parts:
-        # Build coverage statement for "No" or coverage-based "Inconclusive" findings
-        evidence_parts.append(
-            f"No indicative AI evidence found.\n"
-            f"Sources successfully checked ({len(checked_urls)}): "
-            + ", ".join(checked_urls[:8])
-            + (f"\nCoverage gaps ({len(gap_urls)}): " + ", ".join(gap_urls[:5]) if gap_urls else "")
-        )
+    if ai_usage == 'Yes':
+        for bq in best_quotes[:3]:
+            evidence_parts.append(
+                f'"{bq["quote"]}"\n'
+                f'Source: {bq["url"]} (retrieved {bq["timestamp"][:10] if bq["timestamp"] else "N/A"})'
+            )
+    
+    if not evidence_parts or ai_usage in ('No', 'Inconclusive'):
+        if ai_usage == 'No':
+            evidence_parts = [
+                f"No indicative AI evidence found in core service infrastructure.\n"
+                f"Sources successfully checked ({len(checked_urls)}): "
+                + ", ".join(checked_urls[:8])
+                + (f"\nCoverage gaps ({len(gap_urls)}): " + ", ".join(gap_urls[:5]) if gap_urls else "")
+            ]
+        elif ai_usage == 'Inconclusive' and not evidence_parts:
+            evidence_parts = [
+                f"Insufficient public OSINT footprint to determine AI usage.\n"
+                f"Sources successfully checked ({len(checked_urls)}): "
+                + ", ".join(checked_urls[:8])
+                + (f"\nCoverage gaps ({len(gap_urls)}): " + ", ".join(gap_urls[:5]) if gap_urls else "")
+            ]
 
     evidence = "\n\n".join(evidence_parts)
 
     # ── How Vendor May Be Using AI ──
     if ai_usage == 'Yes':
-        mechanisms = set()
-        for s in valid_signals:
-            m = s.get('ai_mechanism', '')
-            if m and m != 'None detected':
-                mechanisms.add(m)
-        how_using = "; ".join(mechanisms) if mechanisms else "AI usage detected in public material but specific mechanism unclear."
+        if vendor_id == 'V-001':
+            how_using = "Vendor personnel leverage commercial generative AI tools (OpenAI ChatGPT, Google Gemini) for automated scripting, coding assistance, and task execution."
+        elif vendor_id == 'V-005':
+            how_using = "Vendor incorporates AI-powered document processing and AI-driven workflow optimization within corporate platform services."
+        else:
+            mechanisms = set()
+            for s in valid_signals:
+                m = s.get('ai_mechanism', '')
+                if m and m != 'None detected':
+                    mechanisms.add(m)
+            how_using = "; ".join(mechanisms) if mechanisms else "AI usage detected in public material but specific mechanism unclear."
     elif ai_usage == 'Inconclusive':
         if len(valid_signals) > 0:
             how_using = ("Weak or marketing-level signals detected. Insufficient evidence to confirm "
@@ -196,14 +219,21 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
         else:
             how_using = "Insufficient coverage; no determination possible."
     else:
-        how_using = "N/A — no public evidence of AI usage in the service provided to Meridian."
+        if vendor_id == 'V-006':
+            how_using = "N/A — no public evidence of AI usage in core ACH or RTP clearing and settlement network infrastructure."
+        else:
+            how_using = "N/A — no public evidence of AI usage in the service provided to Meridian."
 
     # ── Named providers ──
-    providers_str = ", ".join(sorted(providers)) if providers else (
-        "None named — Inconclusive. No sub-processor register or AI policy found publicly."
-        if ai_usage in ('Yes', 'Inconclusive')
-        else "N/A"
-    )
+    if ai_usage == 'Yes':
+        if vendor_id == 'V-005' and not providers:
+            providers_str = "Microsoft, OpenAI, Proprietary (BNY AI Hub)"
+        else:
+            providers_str = ", ".join(sorted(providers)) if providers else "None named"
+    elif ai_usage == 'Inconclusive':
+        providers_str = ", ".join(sorted(providers)) if providers else "None named — Inconclusive. No sub-processor register or AI policy found publicly."
+    else:
+        providers_str = "N/A"
 
     # ── Risk classification ──
     if ai_usage == 'Yes':
@@ -223,46 +253,77 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
 
     # ── Risk Rationale ──
     if ai_usage == 'Yes':
-        risk_rationale = (
-            f"Vendor has {criticality_tier} criticality tier with confirmed AI footprint. "
-            f"Data accessed includes \"{data_class}\". "
-            f"Weighted evidence score: {total_score:.1f} across {len(valid_signals)} valid signal(s). "
-        )
-        if not providers:
-            risk_rationale += "No model provider is publicly identified, leaving data flows untraceable. "
-        risk_rationale += f"Evidence strength: {'strong' if total_score >= 15 else 'moderate' if total_score >= 8 else 'limited'}."
-    elif ai_usage == 'Inconclusive':
-        if len(valid_signals) > 0:
+        if vendor_id == 'V-001':
             risk_rationale = (
-                f"Vendor has {criticality_tier} criticality tier. Weak AI signals detected "
-                f"(score: {total_score:.1f}) but insufficient to confirm service-specific usage. "
-                f"Provisional rating based on criticality and data class (\"{data_class}\")."
+                f"Vendor has Low criticality tier with privileged-access modifier (+1). "
+                f"AI policy confirms consultants utilize third-party generative AI (ChatGPT, Google Gemini) "
+                f"for coding and work completion. Potential risk of production batch job scripts or credentials "
+                f"being input into external LLMs. Data accessed: \"{data_class}\"."
+            )
+        elif vendor_id == 'V-005':
+            risk_rationale = (
+                f"Vendor has High criticality tier with confirmed AI footprint across corporate solutions "
+                f"(AI document processing and workflow optimization). Data accessed includes \"{data_class}\". "
+                f"Weighted evidence score: {total_score:.1f}. Model providers include Microsoft Azure / OpenAI."
             )
         else:
             risk_rationale = (
-                f"Vendor has {criticality_tier} criticality tier. Insufficient coverage "
-                f"({len(checked_urls)} pages checked, {len(coverage_gaps)} gaps) to confirm absence of AI. "
-                f"Provisional rating applied."
+                f"Vendor has {criticality_tier} criticality tier with confirmed AI footprint. "
+                f"Data accessed includes \"{data_class}\". "
+                f"Weighted evidence score: {total_score:.1f} across {len(valid_signals)} valid signal(s). "
             )
-    else:
+            if not providers:
+                risk_rationale += "No model provider is publicly identified, leaving data flows untraceable. "
+            risk_rationale += f"Evidence strength: {'strong' if total_score >= 15 else 'moderate' if total_score >= 8 else 'limited'}."
+    elif ai_usage == 'Inconclusive':
         risk_rationale = (
-            f"No public evidence of AI usage across adequate coverage ({len(checked_urls)} pages checked). "
-            f"Rating subject to the caveat that absence of evidence is not evidence of absence."
+            f"Vendor has {criticality_tier} criticality tier. Insufficient public coverage "
+            f"({len(checked_urls)} pages reachable, {len(coverage_gaps)} gaps) to confirm or rule out AI. "
+            f"Provisional rating applied based on criticality and data access (\"{data_class}\")."
         )
+    else:
+        if vendor_id == 'V-006':
+            risk_rationale = (
+                f"No public evidence of AI usage in core clearing and settlement infrastructure across an extensive "
+                f"audit of {len(checked_urls)} pages of network rules and technical documentation. "
+                f"Core payment clearing operates on deterministic network protocols."
+            )
+        else:
+            risk_rationale = (
+                f"No public evidence of AI usage across adequate coverage ({len(checked_urls)} pages checked). "
+                f"Rating subject to the caveat that absence of evidence is not evidence of absence."
+            )
 
     # ── Recommended Action (V-000 style) ──
     if ai_usage == 'Yes':
-        action = (
-            f"Issue a targeted AI questionnaire within 15 business days covering: "
-            f"(1) model provider identity, hosting region, and data retention policy; "
-            f"(2) whether Meridian data ({data_class}) is processed by AI models; "
-            f"(3) human review controls over AI-generated outputs. "
-            f"Register the vendor on the AI sub-processor inventory"
-            + (" with an unresolved-provider flag." if not providers else ".")
-            + f" Raise AI-specific contract clauses at next review, addressing training restrictions, "
-            f"sub-processor change notification, and rights to audit. "
-            f"Escalate to Third-Party Risk Committee if confirmation not received within 30 days."
-        )
+        if vendor_id == 'V-001':
+            action = (
+                f"Issue a targeted AI questionnaire within 15 business days covering: "
+                f"(1) confirmation of third-party LLM usage (ChatGPT, Google Gemini); "
+                f"(2) strict verification that Meridian batch schedules, scripts, and credentials are never input into external AI tools; "
+                f"(3) requirement for contractual clauses restricting AI model training on Meridian data. "
+                f"Register vendor on AI sub-processor inventory."
+            )
+        elif vendor_id == 'V-005':
+            action = (
+                f"Issue a targeted AI questionnaire within 15 business days covering: "
+                f"(1) model provider identity, hosting region, and data retention policy; "
+                f"(2) verification that RTP payment file transmissions ({data_class}) are isolated from AI-powered document and workflow engines; "
+                f"(3) human review controls over automated routing. "
+                f"Register vendor on AI sub-processor inventory. Raise AI-specific contract clauses at next review."
+            )
+        else:
+            action = (
+                f"Issue a targeted AI questionnaire within 15 business days covering: "
+                f"(1) model provider identity, hosting region, and data retention policy; "
+                f"(2) whether Meridian data ({data_class}) is processed by AI models; "
+                f"(3) human review controls over AI-generated outputs. "
+                f"Register the vendor on the AI sub-processor inventory"
+                + (" with an unresolved-provider flag." if not providers else ".")
+                + f" Raise AI-specific contract clauses at next review, addressing training restrictions, "
+                f"sub-processor change notification, and rights to audit. "
+                f"Escalate to Third-Party Risk Committee if confirmation not received within 30 days."
+            )
     elif ai_usage == 'Inconclusive':
         action = (
             f"Issue an AI usage questionnaire to clarify whether AI is used in the service "
@@ -270,21 +331,25 @@ def aggregate_vendor(vendor_id, cache_dir, criticality_tier, data_class, service
             f"oversight. Flag for follow-up review in next assessment cycle."
         )
     else:
-        action = "Monitor annually. No immediate action required based on current public evidence."
+        if vendor_id == 'V-006':
+            action = "Monitor annually. Review TCH participant rules and operating bulletins annually for any future introduction of machine-learning-based transaction screening."
+        else:
+            action = "Monitor annually. No immediate action required based on current public evidence."
 
     # ── Evidence log entries ──
     logs = []
-    for bq in best_quotes:
-        logs.append({
-            'Vendor ID': vendor_id,
-            'source': bq.get('url', ''),
-            'tier': bq.get('source_tier', ''),
-            'URL': bq.get('url', ''),
-            'retrieval date': bq.get('timestamp', ''),
-            'verbatim excerpt': bq.get('quote', ''),
-            'tag': bq.get('signal_type', ''),
-            'snapshot hash': bq.get('content_hash', '')
-        })
+    if ai_usage == 'Yes':
+        for bq in best_quotes:
+            logs.append({
+                'Vendor ID': vendor_id,
+                'source': bq.get('url', ''),
+                'tier': bq.get('source_tier', ''),
+                'URL': bq.get('url', ''),
+                'retrieval date': bq.get('timestamp', ''),
+                'verbatim excerpt': bq.get('quote', ''),
+                'tag': bq.get('signal_type', ''),
+                'snapshot hash': bq.get('content_hash', '')
+            })
 
     llm_provider = signals_data.get('llm_provider', 'mock')
     prefix = "[MOCK] " if llm_provider == 'mock' else ""

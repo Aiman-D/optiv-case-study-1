@@ -5,8 +5,10 @@ Pre-filters cached snapshots for AI keywords, then uses an LLM (or mock)
 to extract structured signals. Every quote is verified as an exact substring
 of the stored snapshot — invalid quotes are discarded.
 
-LLM provider is configured via environment variables:
-  - LLM_PROVIDER: "openai" | "mock" (default: "mock")
+LLM provider is configured via environment variables or a .env file:
+  - LLM_PROVIDER: "groq" | "openai" | "ollama" | "mock" (default: "mock")
+  - GROQ_API_KEY: required if provider is "groq"
+  - GROQ_MODEL: model name (default: "llama-3.3-70b-versatile")
   - OPENAI_API_KEY: required if provider is "openai"
   - OPENAI_MODEL: model name (default: "gpt-4o-mini")
 """
@@ -16,6 +18,27 @@ import os
 import re
 from pathlib import Path
 from datetime import datetime, timezone
+
+
+def _load_env_file():
+    """Load key-values from .env if present without requiring python-dotenv."""
+    for base in [Path('.env'), Path(__file__).parent / '.env', Path(__file__).parent.parent / '.env']:
+        if base.exists():
+            try:
+                with open(base, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            k, v = line.split('=', 1)
+                            k, v = k.strip(), v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+
+_load_env_file()
 
 # ──────────────────────────────────────────────────────────────
 # AI keyword pre-filter
@@ -177,12 +200,18 @@ def classify_with_mock(text, url):
 
 
 def classify_with_llm(text, url):
-    """Real LLM classifier — uses OpenAI API or local Ollama."""
+    """Real LLM classifier — uses Groq, OpenAI API, or local Ollama."""
     try:
         import openai
-        provider = os.environ.get('LLM_PROVIDER', 'mock')
+        provider = os.environ.get('LLM_PROVIDER', 'mock').lower()
         
-        if provider == 'ollama':
+        if provider == 'groq':
+            api_key = os.environ.get('GROQ_API_KEY')
+            if not api_key:
+                raise ValueError("GROQ_API_KEY environment variable is not set")
+            client = openai.OpenAI(base_url='https://api.groq.com/openai/v1', api_key=api_key)
+            model = os.environ.get('GROQ_MODEL', os.environ.get('OPENAI_MODEL', 'openai/gpt-oss-120b'))
+        elif provider == 'ollama':
             client = openai.OpenAI(base_url='http://localhost:11434/v1', api_key='ollama')
             model = os.environ.get('OPENAI_MODEL', 'llama3.1')
         else:
@@ -200,7 +229,7 @@ For each AI-related claim, extract:
 - human_oversight_mentioned: true/false
 - confidence: High/Medium/Low
 
-Return a JSON array. If no AI signals found, return [{{"signal_type": "NEGATIVE-FINDING", ...}}].
+Return a JSON object with a key 'signals' containing the list of objects. If no AI signals found, return {{"signals": [{{"signal_type": "NEGATIVE-FINDING", "verbatim_quote": "", "ai_mechanism": "None detected", "ties_to_service": false, "data_touched": "N/A", "provider_named": "None", "human_oversight_mentioned": false, "confidence": "High"}}]}}.
 
 TEXT:
 {text[:4000]}"""
@@ -213,10 +242,16 @@ TEXT:
         )
 
         result = json.loads(response.choices[0].message.content)
-        signals = result if isinstance(result, list) else result.get('signals', [result])
+        if isinstance(result, list):
+            signals = result
+        elif isinstance(result, dict):
+            signals = result.get('signals') or [result]
+        else:
+            signals = []
 
         for s in signals:
-            s['url'] = url
+            if isinstance(s, dict):
+                s['url'] = url
 
         return signals
     except Exception as e:
@@ -243,7 +278,7 @@ def classify_vendor(vendor_id, cache_dir='cache'):
     with open(summary_file, 'r') as f:
         crawl_summary = json.load(f)
 
-    provider = os.environ.get('LLM_PROVIDER', 'mock')
+    provider = os.environ.get('LLM_PROVIDER', 'mock').lower()
     if provider == 'openai':
         try:
             import openai
@@ -258,8 +293,18 @@ def classify_vendor(vendor_id, cache_dir='cache'):
         except Exception as e:
             print(f"  [classify_vendor] Cannot use Ollama: {e}. Falling back to mock for {vendor_id}")
             provider = 'mock'
+    elif provider == 'groq':
+        try:
+            import openai
+            api_key = os.environ.get('GROQ_API_KEY')
+            if not api_key:
+                raise ValueError("GROQ_API_KEY environment variable is not set")
+            client = openai.OpenAI(base_url='https://api.groq.com/openai/v1', api_key=api_key)
+        except Exception as e:
+            print(f"  [classify_vendor] Cannot use Groq: {e}. Falling back to mock for {vendor_id}")
+            provider = 'mock'
             
-    classify_fn = classify_with_llm if provider in ('openai', 'ollama') else classify_with_mock
+    classify_fn = classify_with_llm if provider in ('openai', 'ollama', 'groq') else classify_with_mock
 
     all_signals = []
     sources_checked = []
